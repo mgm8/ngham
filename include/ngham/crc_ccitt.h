@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.0
+ * \version 0.0.2
  * 
  * \date 2023/03/12
  * 
@@ -40,24 +40,24 @@
 #include <stdint.h>
 
 /**
- * \brief .
+ * \brief Computes the CRC16-CCITT value of a single byte.
  *
- * \param[in] buf .
+ * \param[in] buf is the byte to compute the CRC.
  *
- * \param[in] crc .
+ * \param[in] crc is the value.
  *
- * \return .
+ * \return The computed CRC16-CCITT value.
  */
 uint16_t crc_ccitt_byte(uint8_t buf, uint16_t crc);
 
 /**
- * \brief .
+ * \brief Computes the CRC16-CCITT value of a sequence of bytes.
  *
- * \param[in] buf .
+ * \param[in] buf is the array of bytes to compute the CRC.
  *
- * \param[in] buf_len .
+ * \param[in] buf_len is the number of bytes of the given array.
  *
- * \return .
+ * \return The computed CRC16-CCITT value.
  */
 uint16_t crc_ccitt(uint8_t *buf, uint16_t buf_len);
 

@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.1
+ * \version 0.0.2
  * 
  * \date 2023/03/12
  * 
@@ -40,7 +40,7 @@
 
 #include "ngham_packets.h"
 
-#define NGHAM_VERSION                   "v0.0.1"
+#define NGHAM_VERSION                   "v0.0.2"
 
 extern const uint8_t NGH_SYNC[];
 
@@ -57,14 +57,16 @@ extern const uint8_t NGH_SYNC[];
 #define NGH_FLAGS_bp                    5U
 
 /**
- * \brief .
+ * \brief NGHam protocol initialization.
  *
  * \return The status/error code.
  */
 int ngham_init(void)
 
 /**
- * \brief .
+ * \brief Encodes a given data into a NGHam packet.
+ *
+ * Packets to be transmitted are passed to this function - max. length 220B.
  *
  * \param[in] data .
  *
@@ -81,7 +83,7 @@ int ngham_init(void)
 int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint16_t *pkt_len);
 
 /**
- * \brief .
+ * \brief Decodes a given NGHam packet to data.
  *
  * \param[in] d .
  *
