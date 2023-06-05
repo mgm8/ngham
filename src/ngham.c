@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.0
+ * \version 0.0.1
  * 
  * \date 2023/03/12
  * 
@@ -33,19 +33,17 @@
  * \{
  */
 
-#include "ngham.h"
+#include <stddef.h>                 /* For NULL etc. */
+#include <string.h>                 /* For memcpy */
+#include <stdlib.h>                 /* For free */
 
-#include <stddef.h>					/* For NULL etc. */
-#include <string.h>					/* For memcpy */
-#include <stdlib.h>					/* For free */
+#include <rsclib/rsclib.h>
 
-#include "ccsds_scrambler.h"		/* Pre-generated array from scrambling polynomial */
-#include "ngham_packets.h"			/* Structs for TX and RX packets */
-#include "crc_ccitt.h"
+#include <ngham/ngham.h>
 
-#include "ngham_paths.h"
-
-#include PATH_NGHAM_PLATFORM
+#include <ngham/ccsds_scrambler.h>  /* Pre-generated array from scrambling polynomial */
+#include <ngham/ngham_packets.h>    /* Structs for TX and RX packets */
+#include <ngham/crc_ccitt.h>
 
 /* There are seven different sizes. */
 /* Each size has a correlation tag for size, a total size, a maximum payload size and a parity data size. */
@@ -84,12 +82,18 @@ const uint8_t NGH_PREAMBLE_FOUR_LEVEL   = 0xDD;
 const uint8_t NGH_SYNC_FOUR_LEVEL[]     = {0x77, 0xf7, 0xfd, 0x7d, 0x5d, 0xdd, 0x7f, 0xfd};
 
 /* Reed Solomon control blocks for the different NGHAM sizes */
-struct rs rs_cb[NGH_SIZES];
+reed_solomon_t rs[NGH_SIZES] = {0};
 
-void ngham_init(void)
-{
-    decoder_state = NGH_STATE_SIZE_TAG;
-}
+/**
+ * \brief Generates the Reed-Solomon tables for all packets sizes.
+ *
+ * Run only once - generates Reed Solomon tables for all 7 packet sizes.
+ *
+ * MM=8, genpoly=0x187, fcs=112, prim=11, nroots=32 or 16
+ *
+ * \return The status/error code.
+ */
+int ngham_init_arrays(void);
 
 /**
  * \brief Used to check if hamming distance in size tag is smaller than treshold.
@@ -102,85 +106,29 @@ void ngham_init(void)
  */
 uint8_t ngham_tag_check(uint32_t x, uint32_t y);
 
-/* Run only once - generates reed solomon tables for all 7 packet sizes */
-/* MM=8, genpoly=0x187, fcs=112, prim=11, nroots=32 or 16 */
-void ngham_init_arrays(void)
+int ngham_init(void)
 {
-    unsigned int j;
-	
-    struct rs* rs_16 = (void*)init_rs_char(8, 0x187, 112, 11, 16, 0);
-    for(j = 0; j < 3; j++)
-    {
-    	memcpy((void*)&rs_cb[j], (void*)rs_16, sizeof (rs_cb[j]));
-    }
-    free(rs_16);
-	
-    struct rs* rs_32 = (void*)init_rs_char(8, 0x187, 112, 11, 32, 0);
-    for(; j < NGH_SIZES; j++)
-    {
-        memcpy((void*)&rs_cb[j], (void*)rs_32, sizeof (rs_cb[j]));
-    }
-    free(rs_32);
+    decoder_state = NGH_STATE_SIZE_TAG;
 
-    /* Set padding size for each packet size */
-    for(j=0; j<NGH_SIZES; j++)
-    {
-        rs_cb[j].pad = NGH_PL_PAR_SIZE[6]-NGH_PL_PAR_SIZE[j];
-    }
-}
-
-void ngham_deinit_arrays(void)
-{
-}
-
-uint8_t ngham_tag_check(uint32_t x, uint32_t y)
-{
-    uint8_t j = 0U;
-    uint8_t distance = 0U;
-    uint32_t diff = x ^ y;
-    uint8_t res = 0;
-
-	if (diff != 0U)
-    {
-        for(j = 0U; j < 24U; j++)
-        {
-            if (diff & 0x01U)
-            {
-                distance++;
-                if (distance > NGH_SIZE_TAG_MAX_ERROR)
-                {
-                    res = 0;
-                    break;
-                }
-            }
-
-            diff >>= 1;
-        }
-    }
-    else
-    {
-        res = 1;
-    }
-
-    return res;
+    return ngham_init_arrays();
 }
 
 /* Packets to be transmitted are passed to this function - max. length 220 B */
-void ngham_encode(tx_pkt_t *p)
+int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint16_t *pkt_len)
 {
     uint16_t j;
     uint16_t crc;
     uint8_t size_nr = 0;
-    uint8_t d[NGH_MAX_TOT_SIZE];
     uint16_t d_len = 0;
     uint8_t codeword_start;
 
 	/* Check size and find control block for smallest possible RS codeword */
-	if ((p->pl_len == 0) || (p->pl_len > NGH_PL_SIZE[NGH_SIZES-1]))
+	if ((len == 0) || (len > NGH_PL_SIZE[NGH_SIZES - 1]))
     {
-        return;
+        return -1;
     }
-	while(p->pl_len > NGH_PL_SIZE[size_nr])
+
+	while(len > NGH_PL_SIZE[size_nr])
     {
         size_nr++;
     }
@@ -189,58 +137,65 @@ void ngham_encode(tx_pkt_t *p)
     if (NGHAM_FOUR_LEVEL_MODULATION)
     {
         codeword_start = NGH_PREAMBLE_SIZE_FOUR_LEVEL + NGH_SYNC_SIZE_FOUR_LEVEL+NGH_SIZE_TAG_SIZE;
+
         for(j = 0; j < NGH_PREAMBLE_SIZE_FOUR_LEVEL; j++)
         {
-            d[d_len++] = NGH_PREAMBLE_FOUR_LEVEL;
+            pkt[d_len++] = NGH_PREAMBLE_FOUR_LEVEL;
         }
+
         for(j = 0; j < NGH_SYNC_SIZE_FOUR_LEVEL; j++)
         {
-            d[d_len++] = NGH_SYNC_FOUR_LEVEL[j];
+            pkt[d_len++] = NGH_SYNC_FOUR_LEVEL[j];
         }
     }
     else
     {
         codeword_start = NGH_PREAMBLE_SIZE + NGH_SYNC_SIZE+NGH_SIZE_TAG_SIZE;
+
         for(j = 0; j < NGH_PREAMBLE_SIZE; j++)
         {
-            d[d_len++] = NGH_PREAMBLE;
+            pkt[d_len++] = NGH_PREAMBLE;
         }
+
         for(j = 0; j < NGH_SYNC_SIZE; j++)
         {
-            d[d_len++] = NGH_SYNC[j];
+            pkt[d_len++] = NGH_SYNC[j];
         }
     }
-    d[d_len++] = (NGH_SIZE_TAG[size_nr] >> 16) & 0xff;
-    d[d_len++] = (NGH_SIZE_TAG[size_nr] >> 8) & 0xff;
-    d[d_len++] = NGH_SIZE_TAG[size_nr] & 0xff;
+
+    pkt[d_len++] = (NGH_SIZE_TAG[size_nr] >> 16) & 0xFFU;
+    pkt[d_len++] = (NGH_SIZE_TAG[size_nr] >> 8) & 0xFFU;
+    pkt[d_len++] = NGH_SIZE_TAG[size_nr] & 0xFFU;
 
     /* Prepare content of codeword */
-    d[d_len] = (NGH_PL_SIZE[size_nr] - p->pl_len) & 0x1f;   /* Insert padding size */
-    d[d_len] |= (p->ngham_flags << 5) & 0xe0;               /* Insert flags */
-    d_len++;
-    for(j = 0; j < p->pl_len; j++)
+    pkt[d_len] = (NGH_PL_SIZE[size_nr] - len) & 0x1FU;      /* Insert padding size */
+    pkt[d_len] |= (flags << 5) & 0xE0U;                     /* Insert flags */
+    pkt_len++;
+    for(j = 0; j < len; j++)
     {
-        d[d_len++] = p->pl[j];                              /* Insert data */
+        d[d_len++] = pl[j];                                 /* Insert data */
     }
-    crc = crc_ccitt(&d[codeword_start], p->pl_len+1);       /* Insert CRC */
-    d[d_len++] = (crc >> 8) & 0xff;
-    d[d_len++] = crc & 0xff;
-    for(j = p->pl_len + 3; j < NGH_PL_SIZE_FULL[size_nr]; j++)
+    crc = crc_ccitt(&d[codeword_start], len + 1);           /* Insert CRC */
+    pkt[d_len++] = (crc >> 8) & 0xFFU;
+    pkt[d_len++] = crc & 0xFFU;
+    for(j = len + 3; j < NGH_PL_SIZE_FULL[size_nr]; j++)
     {
-        d[d_len++] = 0;                                     /* Insert padding */
+        pkt[d_len++] = 0;                                   /* Insert padding */
     }
 
     /* Generate parity data */
-    encode_rs_char(&rs_cb[size_nr], &d[codeword_start], &d[d_len]);
+    rsc_encode(rs[size_nr], &pkt[codeword_start], &pkt[d_len]);
     d_len += NGH_PAR_SIZE[size_nr];
 
     /* Scramble */
     for(j = 0; j < NGH_PL_PAR_SIZE[size_nr]; j++)
     {
-        d[codeword_start+j] ^= ccsds_poly[j];
+        pkt[codeword_start+j] ^= ccsds_poly[j];
     }
 
-    ngham_action_send_data(d, d_len, p->priority);
+    *pkt_len = d_len;
+
+    return 0;
 }
 
 void ngham_decode(uint8_t d)
@@ -274,14 +229,14 @@ void ngham_decode(uint8_t d)
                         length = 0;
 
                         /* Set new packet size as soon as possible */
-                        ngham_action_set_packet_size(NGH_PL_PAR_SIZE[size_nr] + NGH_SIZE_TAG_SIZE);
+//                        ngham_action_set_packet_size(NGH_PL_PAR_SIZE[size_nr] + NGH_SIZE_TAG_SIZE);
                         break;
                     }
                 }
                 /* If size tag is not found, every size can theoretically be attempted */
                 if (decoder_state != NGH_STATE_SIZE_KNOWN)
                 {
-                    ngham_action_handle_packet(PKT_CONDITION_PREFAIL, NULL);
+//                    ngham_action_handle_packet(PKT_CONDITION_PREFAIL, NULL);
                     decoder_state = NGH_STATE_SIZE_TAG;
                 }
             }
@@ -302,7 +257,7 @@ void ngham_decode(uint8_t d)
                 int8_t errors;
 
                 /* Set packet size back to a large value */
-                ngham_action_set_packet_size(255);
+//                ngham_action_set_packet_size(255);
                 decoder_state = NGH_STATE_SIZE_TAG;
 
                 /* Run Reed Solomon decoding, calculate packet length */
@@ -318,16 +273,72 @@ void ngham_decode(uint8_t d)
                     rx_pkt.ngham_flags = (buf[0] & NGH_FLAGS_bm) >> NGH_FLAGS_bp;
                     rx_pkt.noise = ngham_action_get_noise_floor();
                     rx_pkt.rssi = ngham_action_get_rssi();
-                    ngham_action_handle_packet(PKT_CONDITION_OK, &rx_pkt);
+//                    ngham_action_handle_packet(PKT_CONDITION_OK, &rx_pkt);
                 }
                 /* If packet decoding not was successful, count this as an error */
                 else
                 {
-                    ngham_action_handle_packet(PKT_CONDITION_FAIL, NULL);
+//                    ngham_action_handle_packet(PKT_CONDITION_FAIL, NULL);
                 }
             }
             break;
     }
+}
+
+int ngham_init_arrays(void)
+{
+    int err = 0;
+    int j = 0;
+
+    for(j = 0; j < 3; j++)
+    {
+        if (rsc_init(8, 0x187, 112, 11, 16, (NGH_PL_PAR_SIZE[6] - NGH_PL_PAR_SIZE[j]), &rs[j]) != 0)
+        {
+            err = -1;
+        }
+    }
+
+    for(; j < NGH_SIZES; j++)
+    {
+        if (rsc_init(8, 0x187, 112, 11, 32, (NGH_PL_PAR_SIZE[6] - NGH_PL_PAR_SIZE[j]), &rs[j]) != 0)
+        {
+            err = -1;
+        }
+    }
+
+    return err;
+}
+
+uint8_t ngham_tag_check(uint32_t x, uint32_t y)
+{
+    uint8_t j = 0U;
+    uint8_t distance = 0U;
+    uint32_t diff = x ^ y;
+    uint8_t res = 0;
+
+	if (diff != 0U)
+    {
+        for(j = 0U; j < 24U; j++)
+        {
+            if (diff & 0x01U)
+            {
+                distance++;
+                if (distance > NGH_SIZE_TAG_MAX_ERROR)
+                {
+                    res = 0;
+                    break;
+                }
+            }
+
+            diff >>= 1;
+        }
+    }
+    else
+    {
+        res = 1;
+    }
+
+    return res;
 }
 
 /**< \} End of ngham group */

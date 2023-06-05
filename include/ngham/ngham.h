@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.0
+ * \version 0.0.1
  * 
  * \date 2023/03/12
  * 
@@ -40,7 +40,7 @@
 
 #include "ngham_packets.h"
 
-#define NGHAM_VERSION                   "v0.0.0"
+#define NGHAM_VERSION                   "v0.0.1"
 
 extern const uint8_t NGH_SYNC[];
 
@@ -59,30 +59,26 @@ extern const uint8_t NGH_SYNC[];
 /**
  * \brief .
  *
- * \return None.
+ * \return The status/error code.
  */
-void ngham_init_arrays(void);
+int ngham_init(void)
 
 /**
  * \brief .
  *
- * \return None.
- */
-void ngham_deinit_arrays(void);
-
-/**
- * \brief .
+ * \param[in] data .
  *
- * \return None.
- */
-void ngham_init(void);
-
-/**
- * \brief .
+ * \param[in] len .
  *
- * \return None.
+ * \param[in] flags .
+ *
+ * \param[in,out] pkt .
+ *
+ * \param[in,out] pkt_len .
+ *
+ * \return The status/error code.
  */
-void ngham_encode(tx_pkt_t *p);
+int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint16_t *pkt_len);
 
 /**
  * \brief .
