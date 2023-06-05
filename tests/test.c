@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.0
+ * \version 0.0.1
  * 
  * \date 2023/03/12
  * 
@@ -45,6 +45,7 @@
 
 static void ngham_init_test(void **state)
 {
+    assert_return_code(ngham_init(), 0);
 }
 
 static void ngham_encode_test(void **state)
