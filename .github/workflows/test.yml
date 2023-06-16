@@ -44,10 +44,8 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Install dependencies
-        run: sudo apt install -y cmake libcmocka0 libcmocka-dev
-
-      - name: Compile the test
         run: |
+          sudo apt install -y cmake libcmocka0 libcmocka-dev
           git clone https://github.com/mgm8/rsclib.git
           cd rsclib
           mkdir build
@@ -55,7 +53,10 @@ jobs:
           cmake ..
           make
           sudo make install
-          cd ../../tests
+
+      - name: Compile the test
+        run: |
+          cd tests
           make
 
       - name: Execute the test
