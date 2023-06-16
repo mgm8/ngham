@@ -48,9 +48,15 @@ jobs:
 
       - name: Compile the test
         run: |
-          cd tests
-          cmake .
+          git clone https://github.com/mgm8/rsclib.git
+          cd rsclib
+          mkdir build
+          cd build
+          cmake ..
+          make
+          sudo make install
+          cd ../../tests
           make
 
       - name: Execute the test
-        run: ./tests/ngham_test
+        run: ./tests/ngham_unit_test
