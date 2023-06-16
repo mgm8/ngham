@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.1
+ * \version 0.1.0
  * 
  * \date 2023/03/12
  * 
@@ -37,21 +37,17 @@
 #include <string.h>                 /* For memcpy */
 #include <stdlib.h>                 /* For free */
 
-#include <rsclib/rsclib.h>
+#include <rsc/rsc.h>
 
 #include <ngham/ngham.h>
+#include <ngham/config.h>
 
 #include <ngham/ccsds_scrambler.h>  /* Pre-generated array from scrambling polynomial */
-#include <ngham/ngham_packets.h>    /* Structs for TX and RX packets */
 #include <ngham/crc_ccitt.h>
 
 /* There are seven different sizes. */
 /* Each size has a correlation tag for size, a total size, a maximum payload size and a parity data size. */
 #define NGH_SIZES                   7
-const uint8_t NGH_PL_SIZE[]         = {28, 60, 92,  124, 156, 188, 220};    /* Actual payload */
-const uint8_t NGH_PL_SIZE_FULL[]    = {31, 63, 95,  127, 159, 191, 223};    /* Size with LEN, payload and CRC */
-const uint8_t NGH_PL_PAR_SIZE[]     = {47, 79, 111, 159, 191, 223, 255};    /* Size with RS parity added */
-const uint8_t NGH_PAR_SIZE[]        = {16, 16, 16,  32,  32,  32,  32};
 
 /* Decoder states */
 #define NGH_STATE_SIZE_TAG          0
@@ -61,8 +57,16 @@ const uint8_t NGH_PAR_SIZE[]        = {16, 16, 16,  32,  32,  32,  32};
 #define NGH_STATE_STATUS            4
 #define NGH_STATE_STATUS_2          5
 
+/* Maximum number of errors in the size tag */
+#define NGH_SIZE_TAG_MAX_ERROR      6
+
+uint8_t NGH_PL_SIZE[7]      = {28U, 60U, 92U,  124U, 156U, 188U, 220U}; /* Actual payload */
+uint8_t NGH_PL_SIZE_FULL[7] = {31U, 63U, 95U,  127U, 159U, 191U, 223U}; /* Size with LEN, payload and CRC */
+uint8_t NGH_PL_PAR_SIZE[7]  = {47U, 79U, 111U, 159U, 191U, 223U, 255U}; /* Size with RS parity added */
+uint8_t NGH_PAR_SIZE[7]     = {16U, 16U, 16U,  32U,  32U,  32U,  32U};
+
 /* The seven different size tag vectors */
-const uint32_t NGH_SIZE_TAG[] = {
+uint32_t NGH_SIZE_TAG[7] = {
     0b001110110100100111001101,
     0b010011011101101001010111,
     0b011101101001001110011010,
@@ -72,17 +76,16 @@ const uint32_t NGH_SIZE_TAG[] = {
     0b111011010010011100110100
 };
 
-/* Maximum number of errors in the size tag */
-#define NGH_SIZE_TAG_MAX_ERROR          6
-
 /* Preamble and synchronization vector */
-const uint8_t NGH_PREAMBLE              = 0xAA;
-const uint8_t NGH_SYNC[]                = {0x5D, 0xE6, 0x2A, 0x7E};
-const uint8_t NGH_PREAMBLE_FOUR_LEVEL   = 0xDD;
-const uint8_t NGH_SYNC_FOUR_LEVEL[]     = {0x77, 0xf7, 0xfd, 0x7d, 0x5d, 0xdd, 0x7f, 0xfd};
+uint8_t NGH_PREAMBLE            = 0xAAU;
+uint8_t NGH_PREAMBLE_FOUR_LEVEL = 0xDDU;
+uint8_t NGH_SYNC[4]             = {0x5DU, 0xE6U, 0x2AU, 0x7EU};
+uint8_t NGH_SYNC_FOUR_LEVEL[8]  = {0x77U, 0xF7U, 0xFDU, 0x7DU, 0x5DU, 0xDDU, 0x7FU, 0xFDU};
 
 /* Reed Solomon control blocks for the different NGHAM sizes */
 reed_solomon_t rs[NGH_SIZES] = {0};
+
+int decoder_state = NGH_STATE_SIZE_TAG;
 
 /**
  * \brief Generates the Reed-Solomon tables for all packets sizes.
@@ -113,14 +116,13 @@ int ngham_init(void)
     return ngham_init_arrays();
 }
 
-/* Packets to be transmitted are passed to this function - max. length 220 B */
 int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint16_t *pkt_len)
 {
-    uint16_t j;
-    uint16_t crc;
-    uint8_t size_nr = 0;
-    uint16_t d_len = 0;
-    uint8_t codeword_start;
+    uint16_t j = 0U;
+    uint16_t crc = 0U;
+    uint8_t size_nr = 0U;
+    uint16_t d_len = 0U;
+    uint8_t codeword_start = 0U;
 
 	/* Check size and find control block for smallest possible RS codeword */
 	if ((len == 0) || (len > NGH_PL_SIZE[NGH_SIZES - 1]))
@@ -136,7 +138,7 @@ int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint1
 	/* Insert preamble, sync and size-tag */
     if (NGHAM_FOUR_LEVEL_MODULATION)
     {
-        codeword_start = NGH_PREAMBLE_SIZE_FOUR_LEVEL + NGH_SYNC_SIZE_FOUR_LEVEL+NGH_SIZE_TAG_SIZE;
+        codeword_start = NGH_PREAMBLE_SIZE_FOUR_LEVEL + NGH_SYNC_SIZE_FOUR_LEVEL + NGH_SIZE_TAG_SIZE;
 
         for(j = 0; j < NGH_PREAMBLE_SIZE_FOUR_LEVEL; j++)
         {
@@ -150,14 +152,14 @@ int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint1
     }
     else
     {
-        codeword_start = NGH_PREAMBLE_SIZE + NGH_SYNC_SIZE+NGH_SIZE_TAG_SIZE;
+        codeword_start = NGH_PREAMBLE_SIZE + NGH_SYNC_SIZE + NGH_SIZE_TAG_SIZE;
 
-        for(j = 0; j < NGH_PREAMBLE_SIZE; j++)
+        for(j = 0U; j < NGH_PREAMBLE_SIZE; j++)
         {
             pkt[d_len++] = NGH_PREAMBLE;
         }
 
-        for(j = 0; j < NGH_SYNC_SIZE; j++)
+        for(j = 0U; j < NGH_SYNC_SIZE; j++)
         {
             pkt[d_len++] = NGH_SYNC[j];
         }
@@ -170,12 +172,12 @@ int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint1
     /* Prepare content of codeword */
     pkt[d_len] = (NGH_PL_SIZE[size_nr] - len) & 0x1FU;      /* Insert padding size */
     pkt[d_len] |= (flags << 5) & 0xE0U;                     /* Insert flags */
-    pkt_len++;
+    d_len++;
     for(j = 0; j < len; j++)
     {
-        d[d_len++] = pl[j];                                 /* Insert data */
+        pkt[d_len++] = data[j];                             /* Insert data */
     }
-    crc = crc_ccitt(&d[codeword_start], len + 1);           /* Insert CRC */
+    crc = crc_ccitt(&pkt[codeword_start], len + 1);         /* Insert CRC */
     pkt[d_len++] = (crc >> 8) & 0xFFU;
     pkt[d_len++] = crc & 0xFFU;
     for(j = len + 3; j < NGH_PL_SIZE_FULL[size_nr]; j++)
@@ -184,13 +186,14 @@ int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint1
     }
 
     /* Generate parity data */
-    rsc_encode(rs[size_nr], &pkt[codeword_start], &pkt[d_len]);
+    uint8_t par_len = UINT8_MAX;
+    rsc_encode(&rs[size_nr], &pkt[codeword_start], &pkt[d_len], &par_len);
     d_len += NGH_PAR_SIZE[size_nr];
 
     /* Scramble */
     for(j = 0; j < NGH_PL_PAR_SIZE[size_nr]; j++)
     {
-        pkt[codeword_start+j] ^= ccsds_poly[j];
+        pkt[codeword_start + j] ^= ccsds_poly[j];
     }
 
     *pkt_len = d_len;
@@ -200,89 +203,89 @@ int ngham_encode(uint8_t *data, uint16_t len, uint8_t flags, uint8_t *pkt, uint1
 
 void ngham_decode(uint8_t d)
 {
-    static uint8_t size_nr;
-    static uint32_t size_tag;
-    static unsigned int length;
-    /* This points to the address one lower than the payload! */
-    static uint8_t* buf = (uint8_t*)&rx_pkt.ngham_flags;
-	
-    switch(decoder_state)
-    {
-        case NGH_STATE_SIZE_TAG:
-            size_tag = 0;
-            ngham_action_reception_started();
-        case NGH_STATE_SIZE_TAG_2:
-            size_tag <<= 8;
-            size_tag |= d;
-            decoder_state++;
-            break;
-        case NGH_STATE_SIZE_TAG_3:
-            size_tag <<= 8;
-            size_tag |= d;
-            {
-                for (size_nr = 0; size_nr < NGH_SIZES; size_nr++)
-                {
-                    /* If tag is intact, set known size */
-                    if (ngham_tag_check(size_tag, NGH_SIZE_TAG[size_nr]))
-                    {
-                        decoder_state = NGH_STATE_SIZE_KNOWN;
-                        length = 0;
-
-                        /* Set new packet size as soon as possible */
-//                        ngham_action_set_packet_size(NGH_PL_PAR_SIZE[size_nr] + NGH_SIZE_TAG_SIZE);
-                        break;
-                    }
-                }
-                /* If size tag is not found, every size can theoretically be attempted */
-                if (decoder_state != NGH_STATE_SIZE_KNOWN)
-                {
-//                    ngham_action_handle_packet(PKT_CONDITION_PREFAIL, NULL);
-                    decoder_state = NGH_STATE_SIZE_TAG;
-                }
-            }
-            break;
-        case NGH_STATE_SIZE_KNOWN:
-            /* De-scramble byte and append to buffer */
-            buf[length] = d^ccsds_poly[length];
-            length++;
-
-			/* Do whatever is necessary in this action */
-            if (length == NGHAM_BYTES_TILL_ACTION_HALFWAY)
-            {
-                ngham_action_reception_halfway();
-            }
-
-            if (length == NGH_PL_PAR_SIZE[size_nr])
-            {
-                int8_t errors;
-
-                /* Set packet size back to a large value */
-//                ngham_action_set_packet_size(255);
-                decoder_state = NGH_STATE_SIZE_TAG;
-
-                /* Run Reed Solomon decoding, calculate packet length */
-                errors = decode_rs_char(&rs_cb[size_nr], buf, 0, 0);
-                rx_pkt.pl_len = NGH_PL_SIZE[size_nr] - (buf[0] & NGH_PADDING_bm);
-
-                /* Check if the packet is decodeable and then if CRC is OK */
-                if ((errors != -1) &&
-                    (crc_ccitt(buf, rx_pkt.pl_len + 1) == ((buf[rx_pkt.pl_len + 1] << 8) | buf[rx_pkt.pl_len + 2])) )
-                {
-                    /* Copy remaining fields and pass on */
-                    rx_pkt.errors = errors;
-                    rx_pkt.ngham_flags = (buf[0] & NGH_FLAGS_bm) >> NGH_FLAGS_bp;
-                    rx_pkt.noise = ngham_action_get_noise_floor();
-                    rx_pkt.rssi = ngham_action_get_rssi();
-//                    ngham_action_handle_packet(PKT_CONDITION_OK, &rx_pkt);
-                }
-                /* If packet decoding not was successful, count this as an error */
-                else
-                {
-//                    ngham_action_handle_packet(PKT_CONDITION_FAIL, NULL);
-                }
-            }
-            break;
-    }
+//    static uint8_t size_nr;
+//    static uint32_t size_tag;
+//    static unsigned int length;
+//    /* This points to the address one lower than the payload! */
+//    static uint8_t* buf = (uint8_t*)&rx_pkt.ngham_flags;
+//
+//    switch(decoder_state)
+//    {
+//        case NGH_STATE_SIZE_TAG:
+//            size_tag = 0;
+//            ngham_action_reception_started();
+//        case NGH_STATE_SIZE_TAG_2:
+//            size_tag <<= 8;
+//            size_tag |= d;
+//            decoder_state++;
+//            break;
+//        case NGH_STATE_SIZE_TAG_3:
+//            size_tag <<= 8;
+//            size_tag |= d;
+//            {
+//                for (size_nr = 0; size_nr < NGH_SIZES; size_nr++)
+//                {
+//                    /* If tag is intact, set known size */
+//                    if (ngham_tag_check(size_tag, NGH_SIZE_TAG[size_nr]))
+//                    {
+//                        decoder_state = NGH_STATE_SIZE_KNOWN;
+//                        length = 0;
+//
+//                        /* Set new packet size as soon as possible */
+////                        ngham_action_set_packet_size(NGH_PL_PAR_SIZE[size_nr] + NGH_SIZE_TAG_SIZE);
+//                        break;
+//                    }
+//                }
+//                /* If size tag is not found, every size can theoretically be attempted */
+//                if (decoder_state != NGH_STATE_SIZE_KNOWN)
+//                {
+////                    ngham_action_handle_packet(PKT_CONDITION_PREFAIL, NULL);
+//                    decoder_state = NGH_STATE_SIZE_TAG;
+//                }
+//            }
+//            break;
+//        case NGH_STATE_SIZE_KNOWN:
+//            /* De-scramble byte and append to buffer */
+//            buf[length] = d^ccsds_poly[length];
+//            length++;
+//
+//			/* Do whatever is necessary in this action */
+//            if (length == NGHAM_BYTES_TILL_ACTION_HALFWAY)
+//            {
+//                ngham_action_reception_halfway();
+//            }
+//
+//            if (length == NGH_PL_PAR_SIZE[size_nr])
+//            {
+//                int8_t errors;
+//
+//                /* Set packet size back to a large value */
+////                ngham_action_set_packet_size(255);
+//                decoder_state = NGH_STATE_SIZE_TAG;
+//
+//                /* Run Reed Solomon decoding, calculate packet length */
+//                errors = decode_rs_char(&rs_cb[size_nr], buf, 0, 0);
+//                rx_pkt.pl_len = NGH_PL_SIZE[size_nr] - (buf[0] & NGH_PADDING_bm);
+//
+//                /* Check if the packet is decodeable and then if CRC is OK */
+//                if ((errors != -1) &&
+//                    (crc_ccitt(buf, rx_pkt.pl_len + 1) == ((buf[rx_pkt.pl_len + 1] << 8) | buf[rx_pkt.pl_len + 2])) )
+//                {
+//                    /* Copy remaining fields and pass on */
+//                    rx_pkt.errors = errors;
+//                    rx_pkt.ngham_flags = (buf[0] & NGH_FLAGS_bm) >> NGH_FLAGS_bp;
+//                    rx_pkt.noise = ngham_action_get_noise_floor();
+//                    rx_pkt.rssi = ngham_action_get_rssi();
+////                    ngham_action_handle_packet(PKT_CONDITION_OK, &rx_pkt);
+//                }
+//                /* If packet decoding not was successful, count this as an error */
+//                else
+//                {
+////                    ngham_action_handle_packet(PKT_CONDITION_FAIL, NULL);
+//                }
+//            }
+//            break;
+//    }
 }
 
 int ngham_init_arrays(void)

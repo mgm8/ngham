@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.0
+ * \version 0.1.0
  * 
  * \date 2023/03/12
  * 
@@ -60,11 +60,11 @@ const uint8_t ccsds_poly[255] = {0xFF, 0x48, 0x0E, 0xC0, 0x9A, 0x0D, 0x70, 0xBC,
     0xE6, 0x19, 0x51, 0x5F, 0x9F, 0x05, 0x08, 0x78, 0xC4, 0x4A, 0x66, 0xF5, 0x58
 };
 
-uint8_t ccsds_poly_pos;
+uint8_t ccsds_poly_pos = 0U;
 
 void ccsds_scrambler_init()
 {
-    ccsds_poly_pos = 0;
+    ccsds_poly_pos = 0U;
 }
 
 /* Data should be Xored with the sequence, starting from index zero */

@@ -25,7 +25,7 @@
  * 
  * \author Gabriel Mariano Marcelino <gabriel.mm8@gmail.com>
  * 
- * \version 0.0.2
+ * \version 0.1.0
  * 
  * \date 2023/03/12
  * 
@@ -40,9 +40,7 @@
 
 #include "ngham_packets.h"
 
-#define NGHAM_VERSION                   "v0.0.2"
-
-extern const uint8_t NGH_SYNC[];
+#define NGHAM_VERSION                   "v0.1.0"
 
 #define NGH_PREAMBLE_SIZE               4U
 #define NGH_SYNC_SIZE                   4U
@@ -61,22 +59,22 @@ extern const uint8_t NGH_SYNC[];
  *
  * \return The status/error code.
  */
-int ngham_init(void)
+int ngham_init(void);
 
 /**
  * \brief Encodes a given data into a NGHam packet.
  *
  * Packets to be transmitted are passed to this function - max. length 220B.
  *
- * \param[in] data .
+ * \param[in] data is the array of bytes to be encoded.
  *
- * \param[in] len .
+ * \param[in] len is number of bytes of the given data.
  *
- * \param[in] flags .
+ * \param[in] flags is bytes with the NGHam packets flags.
  *
- * \param[in,out] pkt .
+ * \param[in,out] pkt is a pointer to store the encoded packet.
  *
- * \param[in,out] pkt_len .
+ * \param[in,out] pkt_len is the number of bytes of the encoded packet.
  *
  * \return The status/error code.
  */
